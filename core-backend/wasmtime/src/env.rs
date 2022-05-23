@@ -132,6 +132,7 @@ where
         memory_pages: &BTreeMap<PageNumber, PageBuf>,
         mem_size: WasmPageNumber,
     ) -> Result<Self, BackendError<Self::Error>> {
+        let forbidden_funcs = ext.forbidden_funcs().to_vec();
         let ext_carrier = ExtCarrier::new(ext);
 
         let engine = Engine::default();
@@ -201,6 +202,11 @@ where
         funcs.insert("gr_leave", funcs::leave(&mut store));
         funcs.insert("gr_wait", funcs::wait(&mut store));
         funcs.insert("gr_wake", funcs::wake(&mut store, memory));
+
+        // Override forbidden functions by the dedicated handler.
+        forbidden_funcs.into_iter().for_each(|f| {
+            funcs.insert(f, funcs::forbidden(&mut store));
+        });
 
         let module = match Module::new(&engine, binary) {
             Ok(module) => module,

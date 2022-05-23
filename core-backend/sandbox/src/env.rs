@@ -34,7 +34,9 @@ use gear_core::{
     gas::GasAmount,
     memory::{Memory, PageBuf, PageNumber, WasmPageNumber},
 };
-use gear_core_errors::{CoreError, MemoryError, TerminationReason as CoreTerminationReason};
+use gear_core_errors::{
+    CoreError, ExtError, MemoryError, TerminationReason as CoreTerminationReason,
+};
 use sp_sandbox::{
     default_executor::{EnvironmentDefinitionBuilder, Instance, Memory as DefaultExecutorMemory},
     ReturnValue, SandboxEnvironmentBuilder, SandboxInstance, SandboxMemory,
@@ -108,23 +110,9 @@ impl<E: Ext + IntoExtInfo + 'static> Environment<E> for SandboxEnvironment<E> {
         memory_pages: &BTreeMap<PageNumber, PageBuf>,
         mem_size: WasmPageNumber,
     ) -> Result<Self, BackendError<Self::Error>> {
-        let ext_carrier = ExtCarrier::new(ext);
-
-        let mem: DefaultExecutorMemory = match SandboxMemory::new(mem_size.0, None) {
-            Ok(mem) => mem,
-            Err(e) => {
-                return Err(BackendError {
-                    reason: SandboxEnvironmentError::CreateEnvMemory,
-                    description: Some(format!("{:?}", e).into()),
-                    gas_amount: ext_carrier.into_inner().into_gas_amount(),
-                })
-            }
-        };
+        use crate::funcs::FuncsHandler as funcs;
 
         let mut env_builder = EnvironmentDefinitionBuilder::new();
-
-        use crate::funcs::FuncsHandler as funcs;
-        env_builder.add_memory("env", "memory", mem.clone());
         env_builder.add_host_func("env", "alloc", funcs::alloc);
         env_builder.add_host_func("env", "free", funcs::free);
         env_builder.add_host_func("env", "gr_block_height", funcs::block_height);
@@ -158,6 +146,26 @@ impl<E: Ext + IntoExtInfo + 'static> Environment<E> for SandboxEnvironment<E> {
         env_builder.add_host_func("env", "gr_wait", funcs::wait);
         env_builder.add_host_func("env", "gr_wake", funcs::wake);
         env_builder.add_host_func("env", "gas", funcs::gas);
+
+        // Override forbidden functions by the dedicated handler.
+        ext.forbidden_funcs()
+            .iter()
+            .for_each(|f| env_builder.add_host_func("env", *f, funcs::forbidden));
+
+        let ext_carrier = ExtCarrier::new(ext);
+
+        let mem: DefaultExecutorMemory = match SandboxMemory::new(mem_size.0, None) {
+            Ok(mem) => mem,
+            Err(e) => {
+                return Err(BackendError {
+                    reason: SandboxEnvironmentError::CreateEnvMemory,
+                    description: Some(format!("{:?}", e).into()),
+                    gas_amount: ext_carrier.into_inner().into_gas_amount(),
+                })
+            }
+        };
+
+        env_builder.add_memory("env", "memory", mem.clone());
 
         let mut runtime = Runtime {
             ext: ext_carrier,
@@ -261,6 +269,12 @@ impl<E: Ext + IntoExtInfo + 'static> Environment<E> for SandboxEnvironment<E> {
                     Some(CoreTerminationReason::Leave) => Some(TerminationReason::Leave),
                     Some(CoreTerminationReason::GasAllowanceExceeded) => {
                         Some(TerminationReason::GasAllowanceExceeded)
+                    }
+                    Some(CoreTerminationReason::ForbiddenFunction) => {
+                        Some(TerminationReason::Trap {
+                            explanation: Some(ExtError::ForbiddenFunction),
+                            description: None,
+                        })
                     }
                     None => None,
                 }

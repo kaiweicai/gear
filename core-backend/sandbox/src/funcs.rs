@@ -754,4 +754,11 @@ impl<E: Ext + 'static> FuncsHandler<E> {
             HostError
         })
     }
+
+    pub fn forbidden(ctx: &mut Runtime<E>, _args: &[Value]) -> SyscallOutput {
+        ctx.trap = Some(FuncError::Core(E::Error::from_termination_reason(
+            TerminationReason::ForbiddenFunction,
+        )));
+        Err(HostError)
+    }
 }

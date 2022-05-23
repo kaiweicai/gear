@@ -56,6 +56,7 @@ pub fn process<A: ProcessorExt + EnvExt + IntoExtInfo + 'static, E: Environment<
     gas_allowance: u64,
     outgoing_limit: u32,
     host_fn_weights: HostFnWeights,
+    forbidden_funcs: Vec<&'static str>,
 ) -> Vec<JournalNote> {
     match check_is_executable(maybe_actor, &dispatch) {
         Err(exit_code) => process_non_executable(dispatch, program_id, exit_code),
@@ -69,6 +70,7 @@ pub fn process<A: ProcessorExt + EnvExt + IntoExtInfo + 'static, E: Environment<
             gas_allowance,
             outgoing_limit,
             host_fn_weights,
+            forbidden_funcs,
         ),
     }
 }
@@ -265,6 +267,7 @@ pub fn process_executable<A: ProcessorExt + EnvExt + IntoExtInfo + 'static, E: E
     gas_allowance: u64,
     outgoing_limit: u32,
     host_fn_weights: HostFnWeights,
+    forbidden_funcs: Vec<&'static str>,
 ) -> Vec<JournalNote> {
     use SuccessfulDispatchResultKind::*;
 
@@ -273,6 +276,7 @@ pub fn process_executable<A: ProcessorExt + EnvExt + IntoExtInfo + 'static, E: E
         existential_deposit,
         allocations_config,
         host_fn_weights,
+        forbidden_funcs,
     );
     let execution_context = ExecutionContext {
         origin,

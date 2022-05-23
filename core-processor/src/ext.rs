@@ -56,6 +56,7 @@ pub trait ProcessorExt {
         program_id: ProgramId,
         program_candidates_data: BTreeMap<CodeId, Vec<(ProgramId, MessageId)>>,
         host_fn_weights: HostFnWeights,
+        forbidden_funcs: Vec<&'static str>,
     ) -> Self;
 
     /// Returns whether this extension works with lazy pages
@@ -110,6 +111,8 @@ pub struct Ext {
     pub program_candidates_data: BTreeMap<CodeId, Vec<(ProgramId, MessageId)>>,
     /// Weights of host functions.
     pub host_fn_weights: HostFnWeights,
+    /// Functions forbidden to be called.
+    pub forbidden_funcs: Vec<&'static str>,
 }
 
 /// Empty implementation for non-substrate (and non-lazy-pages) using
@@ -130,6 +133,7 @@ impl ProcessorExt for Ext {
         program_id: ProgramId,
         program_candidates_data: BTreeMap<CodeId, Vec<(ProgramId, MessageId)>>,
         host_fn_weights: HostFnWeights,
+        forbidden_funcs: Vec<&'static str>,
     ) -> Self {
         Self {
             gas_counter,
@@ -146,6 +150,7 @@ impl ProcessorExt for Ext {
             program_id,
             program_candidates_data,
             host_fn_weights,
+            forbidden_funcs,
         }
     }
 
@@ -523,5 +528,9 @@ impl EnvExt for Ext {
             .map_err(ExtError::InitMessageNotDuplicated);
 
         self.return_and_store_err(result)
+    }
+
+    fn forbidden_funcs(&self) -> &[&'static str] {
+        &self.forbidden_funcs
     }
 }

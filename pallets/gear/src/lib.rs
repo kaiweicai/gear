@@ -585,6 +585,7 @@ pub mod pallet {
                         u64::MAX,
                         T::OutgoingLimit::get(),
                         schedule.host_fn_weights.clone().into_core(),
+                        vec!["gr_gas_available"],
                     )
                 } else {
                     core_processor::process::<Ext, SandboxEnvironment<_>>(
@@ -598,6 +599,7 @@ pub mod pallet {
                         u64::MAX,
                         T::OutgoingLimit::get(),
                         schedule.host_fn_weights.clone().into_core(),
+                        vec!["gr_gas_available"],
                     )
                 };
 
@@ -879,6 +881,7 @@ pub mod pallet {
                             GasPallet::<T>::gas_allowance(),
                             T::OutgoingLimit::get(),
                             schedule.host_fn_weights.into_core(),
+                            Default::default(),
                         )
                     } else {
                         core_processor::process::<Ext, SandboxEnvironment<_>>(
@@ -892,6 +895,7 @@ pub mod pallet {
                             GasPallet::<T>::gas_allowance(),
                             T::OutgoingLimit::get(),
                             schedule.host_fn_weights.into_core(),
+                            Default::default(),
                         )
                     };
 
