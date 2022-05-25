@@ -29,8 +29,9 @@ use gear_core::{
     message::StoredDispatch,
 };
 use gear_runtime::{
-    AuraConfig, Call, Gear, GrandpaConfig, Runtime, Signature, SudoConfig, System,
-    TransactionPaymentConfig, UncheckedExtrinsic, Usage,
+    AuraConfig, Balances, Call, Gas, Gear, GearMessenger, GearPayment, GearProgram, GrandpaConfig,
+    Runtime, Signature, SudoConfig, System, TransactionPayment, TransactionPaymentConfig,
+    UncheckedExtrinsic, Usage,
 };
 use parking_lot::RwLock;
 use primitive_types::H256;
@@ -186,15 +187,37 @@ pub(crate) fn run_to_block(n: u32, remaining_weight: Option<u64>) {
     };
 
     while System::block_number() < n {
-        System::on_finalize(System::block_number());
-        let new_block_number = System::block_number() + 1;
-        System::set_block_number(new_block_number);
-        System::initialize(&new_block_number, &System::parent_hash(), &pre_digest);
-        System::on_initialize(System::block_number());
-        Gear::on_initialize(System::block_number());
+        // Run on_idle hook that processes the queue
         let remaining_weight =
             remaining_weight.unwrap_or_else(<Runtime as pallet_gas::Config>::BlockGasLimit::get);
         Gear::on_idle(System::block_number(), remaining_weight);
+
+        // Run on_finalize hooks in pallets reverse order (as they appear in AllPalletsWithSystem)
+        let current_blk = System::block_number();
+        GearPayment::on_finalize(current_blk);
+        Gas::on_finalize(current_blk);
+        Usage::on_finalize(current_blk);
+        Gear::on_finalize(current_blk);
+        GearMessenger::on_finalize(current_blk);
+        GearProgram::on_finalize(current_blk);
+        TransactionPayment::on_finalize(current_blk);
+        Balances::on_finalize(current_blk);
+        System::on_finalize(current_blk);
+
+        let new_block_number = current_blk + 1;
+        System::set_block_number(new_block_number);
+        System::initialize(&new_block_number, &System::parent_hash(), &pre_digest);
+
+        // Run on_initialize hooks in order as they appear in AllPalletsWithSystem
+        System::on_initialize(new_block_number);
+        Balances::on_initialize(new_block_number);
+        TransactionPayment::on_initialize(new_block_number);
+        GearProgram::on_initialize(new_block_number);
+        GearMessenger::on_initialize(new_block_number);
+        Gear::on_initialize(new_block_number);
+        Usage::on_initialize(new_block_number);
+        Gas::on_initialize(new_block_number);
+        GearPayment::on_finalize(new_block_number);
     }
 }
 
@@ -210,20 +233,46 @@ pub(crate) fn run_to_block_with_ocw(
     };
 
     let now = System::block_number();
-    for i in now + 1..=n {
-        System::on_finalize(i - 1);
-        System::set_block_number(i);
-        log::debug!("📦 Processing block {}", i);
-        System::initialize(&i, &System::parent_hash(), &pre_digest);
-        System::on_initialize(i);
-        Gear::on_initialize(i);
+    for i in now..n {
+        // Processing extrinsics in current block
         process_tx_pool(pool.clone());
         log::debug!("✅ Done processing transaction pool at block {}", i);
         let remaining_weight =
             remaining_weight.unwrap_or_else(<Runtime as pallet_gas::Config>::BlockGasLimit::get);
+
+        // Processing message queue
         Gear::on_idle(i, remaining_weight);
+
+        // Offchain worker to charge rent
         increase_offchain_time(1_000);
         Usage::offchain_worker(i);
+
+        // on_finalize hooks (in pallets reverse order, as they appear in AllPalletsWithSystem)
+        GearPayment::on_finalize(i);
+        Gas::on_finalize(i);
+        Usage::on_finalize(i);
+        Gear::on_finalize(i);
+        GearMessenger::on_finalize(i);
+        GearProgram::on_finalize(i);
+        TransactionPayment::on_finalize(i);
+        Balances::on_finalize(i);
+        System::on_finalize(i);
+
+        let new_blk = i + 1;
+        System::set_block_number(i + 1);
+        log::debug!("📦 Initializing block {}", new_blk);
+        System::initialize(&new_blk, &System::parent_hash(), &pre_digest);
+
+        // Run on_initialize hooks in order as they appear in AllPalletsWithSystem
+        System::on_initialize(new_blk);
+        Gear::on_initialize(new_blk);
+        TransactionPayment::on_initialize(new_blk);
+        GearProgram::on_initialize(new_blk);
+        GearMessenger::on_initialize(new_blk);
+        Gear::on_initialize(new_blk);
+        Usage::on_initialize(new_blk);
+        Gas::on_initialize(new_blk);
+        GearPayment::on_finalize(new_blk);
     }
 }
 
@@ -290,8 +339,7 @@ pub(crate) fn total_gas_in_wait_list() -> u64 {
 }
 
 pub(crate) fn total_reserved_balance() -> u128 {
-    // Iterate through the wait list and record the respective gas nodes value limits
-    // attributing the latter to the nearest `node_with_value` ID to avoid duplication
+    // Iterate through all accounts and calculate the cumulative reserved balance
     <system::Account<Runtime>>::iter()
         .map(|(_, v)| v.data.reserved)
         .fold(0, |acc, v| acc.saturating_add(v))

@@ -76,10 +76,23 @@ mod wasm {
     }
 
     impl State {
-        fn new(programs: Vec<ActorId>, non_programs: Vec<ActorId>) -> Self {
+        fn new(programs: Vec<ActorId>) -> Self {
+            let num_contracts = programs.len();
+            let mut non_programs = Vec::<ActorId>::new();
+
+            if num_contracts > 0 {
+                let mut seed = [0u8; 16];
+                seed.copy_from_slice(&programs[0].as_ref()[..16]);
+                let mut rng: SmallRng = SeedableRng::from_seed(seed);
+                let mut buffer = [0u8; 32];
+                for _ in 0..num_contracts {
+                    rng.fill_bytes(&mut buffer);
+                    non_programs.push(buffer.into());
+                }
+            }
             Self {
-                programs: programs,
-                non_programs: non_programs,
+                programs,
+                non_programs,
                 me: exec::program_id(),
             }
         }
@@ -208,9 +221,9 @@ mod wasm {
 
     #[no_mangle]
     pub unsafe extern "C" fn init() {
-        let (programs, non_programs): (Vec<ActorId>, Vec<ActorId>) =
+        let programs: Vec<ActorId> =
             msg::load().expect("Malformed input: expecting vectors of program IDs and random IDs");
-        STATE = State::new(programs, non_programs);
+        STATE = State::new(programs);
         msg::reply((), 0);
         debug!(
             "[0x{} contract-template::init] Program initialized",

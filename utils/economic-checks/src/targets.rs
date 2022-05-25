@@ -62,6 +62,7 @@ pub struct GasUsageStats {
     accounted_gas: u64,
     total_balance: u128,
     initial_balance: u128,
+    #[allow(dead_code)]
     reserved_balance: u128,
 }
 
@@ -120,7 +121,7 @@ pub fn composer_target(params: &Params) -> TargetOutcome {
                 MUL_CONST_WASM_BINARY.to_vec(),
                 b"salt".to_vec(),
                 params.intrinsic_value.encode(),
-                30_000_000,
+                2_500_000_000,
                 0,
             )
             .map_err(|e| e.error)?;
@@ -130,7 +131,7 @@ pub fn composer_target(params: &Params) -> TargetOutcome {
                 NCOMPOSE_WASM_BINARY.to_vec(),
                 b"salt".to_vec(),
                 (<[u8; 32]>::from(mul_id), params.depth).encode(),
-                50_000_000,
+                2_500_000_000,
                 0,
             )
             .map_err(|e| e.error)?;
@@ -176,7 +177,6 @@ where
     match f(params) {
         Ok(outcome) => {
             log::debug!("[run_target] test outcome = {:?}", &outcome);
-            // assert_eq!(outcome.total_gas_supply as u128, outcome.reserved_balance);
             assert_eq!(outcome.total_gas_supply, outcome.accounted_gas);
             assert_eq!(outcome.total_balance, outcome.initial_balance);
         }
@@ -228,7 +228,6 @@ pub fn simple_scenario(params: &Params) -> TargetOutcome {
             let num_contracts = params.num_contracts as usize;
             let mut contracts = BTreeMap::<H256, (Vec<u8>, Vec<u8>)>::new();
             let mut program_ids = Vec::<H256>::new();
-            let mut non_program_ids = Vec::<H256>::new();
 
             // Generating IDs for contracts-to-be
 
@@ -255,14 +254,17 @@ pub fn simple_scenario(params: &Params) -> TargetOutcome {
                 mutator.fuel(fuel);
                 let it = match mutator.run(original_code) {
                     Ok(it) => it,
-                    Err(e) => match e.kind() {
-                        ErrorKind::NoMutationsApplicable => continue,
-                        ErrorKind::OutOfFuel => {
-                            fuel *= 2;
-                            continue;
+                    Err(e) => {
+                        log::debug!("Error mutating wasm: {:?}", e);
+                        match e.kind() {
+                            ErrorKind::NoMutationsApplicable => continue,
+                            ErrorKind::OutOfFuel => {
+                                fuel *= 2;
+                                continue;
+                            }
+                            _ => return Err(DispatchError::from("Failed to mutate wasm")),
                         }
-                        _ => return Err(DispatchError::from("Failed to mutate wasm")),
-                    },
+                    }
                 };
                 for mutated in it.take(num_contracts - 1) {
                     let mutated = mutated.unwrap();
@@ -289,36 +291,26 @@ pub fn simple_scenario(params: &Params) -> TargetOutcome {
                 program_ids.push(contract_id);
             }
 
-            // Get some arbitrary addresses (not belonging to programs)
-            for _ in 0..num_contracts {
-                non_program_ids.push(H256::random());
-            }
-            log::debug!(
-                "num_contracts: {}, programs_ids: {:?}, non_program_ids: {:?}",
-                contracts.len(),
-                program_ids,
-                non_program_ids
-            );
-
             // Deploy test contracts by sending out init messages on behalf of users
-            let payload = (program_ids.clone(), non_program_ids.clone()).encode();
-            let author = &accounts
-                .choose(&mut rng)
-                .expect("Accounts vec must not be empty")
-                .0;
-
-            // Decide whether the message should contain value
-            let value = match rng.next_u32() >> 30 {
-                0_u32 => rng.next_u32() as u128, // 25% chances to have value
-                _ => 0_u128,
-            };
+            let payload = program_ids.clone().encode();
             for (_k, (c, s)) in contracts {
+                let author = &accounts
+                    .choose(&mut rng)
+                    .expect("Accounts vec must not be empty")
+                    .0;
+
+                // Decide whether the message should contain value
+                let value = match rng.next_u32() >> 30 {
+                    0_u32 => rng.next_u32() as u128, // 25% chances to have value
+                    _ => 0_u128,
+                };
+
                 Gear::submit_program(
-                    Origin::signed(author.clone().into()),
+                    Origin::signed(author.clone()),
                     c,
                     s,
                     payload.clone(),
-                    100_000_000,
+                    2_500_000_000,
                     value,
                 )
                 .map_err(|e| e.error)?;
@@ -374,6 +366,8 @@ pub fn simple_scenario(params: &Params) -> TargetOutcome {
 
             // for a block number in [3..N] send out messages and run queue processing
             for (blk, entries) in queue {
+                run_to_block_with_ocw(blk as u32, pool.clone(), None);
+
                 for (hash_id, seed) in entries {
                     let author = &accounts
                         .choose(&mut rng)
@@ -386,7 +380,7 @@ pub fn simple_scenario(params: &Params) -> TargetOutcome {
                         _ => 0_u128,
                     };
                     Gear::send_message(
-                        Origin::signed(author.clone().into()),
+                        Origin::signed(author.clone()),
                         hashes[hash_id as usize],
                         seed.0.to_vec(),
                         params.gas_limit,
@@ -394,9 +388,6 @@ pub fn simple_scenario(params: &Params) -> TargetOutcome {
                     )
                     .map_err(|e| e.error)?;
                 }
-
-                // Modeling offchain workers being run every certain number of blocks
-                run_to_block_with_ocw(blk as u32, pool.clone(), None);
                 current_block = blk;
 
                 // assert_eq!(total_reserved_balance(), <Runtime as pallet_gear::Config>::GasHandler::total_supply() as u128);
@@ -462,7 +453,7 @@ mod tests {
                 MUL_CONST_WASM_BINARY.to_vec(),
                 b"salt".to_vec(),
                 100_u64.encode(),
-                3_000_000_000,
+                2_500_000_000,
                 0,
             ));
 
@@ -471,7 +462,7 @@ mod tests {
                 NCOMPOSE_WASM_BINARY.to_vec(),
                 b"salt".to_vec(),
                 (<[u8; 32]>::from(mul_id), 8_u16).encode(), // 8 iterations
-                3_000_000_000,
+                2_500_000_000,
                 0,
             ));
 
@@ -526,7 +517,7 @@ mod tests {
                 MUL_CONST_WASM_BINARY.to_vec(),
                 b"contract_a".to_vec(),
                 50_u64.encode(),
-                3_000_000_000,
+                2_500_000_000,
                 0,
             ));
 
@@ -535,7 +526,7 @@ mod tests {
                 MUL_CONST_WASM_BINARY.to_vec(),
                 b"contract_b".to_vec(),
                 75_u64.encode(),
-                3_000_000_000,
+                2_500_000_000,
                 0,
             ));
 
@@ -548,7 +539,7 @@ mod tests {
                     <[u8; 32]>::from(contract_b_id)
                 )
                     .encode(),
-                3_000_000_000,
+                2_500_000_000,
                 0,
             ));
 
@@ -558,7 +549,7 @@ mod tests {
                 Origin::signed(alice.clone()),
                 compose_id,
                 100_u64.to_le_bytes().to_vec(),
-                3_000_000_000,
+                2_500_000_000,
                 0,
             ));
 
@@ -604,8 +595,6 @@ mod tests {
             });
 
         println!("queue_len: {:?}, queue: {:?}", queue.len(), queue,);
-
-        assert!(true);
     }
 
     #[test]
@@ -692,16 +681,16 @@ mod tests {
     }
 
     #[test]
-    // #[ignore = "Supposed to fail"]
+    #[ignore = "Supposed to fail"]
     fn run_target_with_params() {
         let params = crate::SimpleParams {
-            num_contracts: 14,
+            num_contracts: 16,
             queue_len: 15,
-            gas_limit: 21569051775,
-            seed: 18446744073709551365,
+            gas_limit: 21659051775,
+            seed: 361700864199886085,
             input: [
-                255, 255, 255, 255, 255, 255, 255, 255, 22, 0, 0, 0, 255, 255, 255, 255, 255, 255,
-                255, 255, 255, 255, 255, 5, 5, 5, 5, 5, 5, 5, 255, 255,
+                5, 5, 5, 5, 5, 5, 255, 255, 255, 255, 255, 255, 5, 5, 5, 5, 5, 5, 84, 0, 0, 0, 0,
+                0, 0, 44, 0, 5, 5, 5, 5, 5,
             ],
         };
         run_target(&crate::Params::Simple(params), simple_scenario);

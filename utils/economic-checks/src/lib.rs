@@ -32,6 +32,7 @@ pub mod contracts;
 
 pub(crate) const MAX_QUEUE_LEN: u16 = 20;
 pub(crate) const MIN_QUEUE_LEN: u16 = 10;
+pub(crate) const MIN_GAS_LIMIT: u64 = 100_000_000;
 
 #[derive(Debug, Clone)]
 pub struct ComposerParams {
@@ -91,7 +92,7 @@ impl<'a> Arbitrary<'a> for SimpleParams {
 
         let num_contracts = 1 + (u16::arbitrary(u)? >> 12); // [1..16]
 
-        let gas_limit = 10_000_000 + (u64::arbitrary(u)? >> 24); // [10^7.. ~10^12]
+        let gas_limit = MIN_GAS_LIMIT + (u64::arbitrary(u)? >> 24); // [10^7.. ~10^12]
 
         let queue_len = (u16::arbitrary(u)? % (MAX_QUEUE_LEN - MIN_QUEUE_LEN)) + MIN_QUEUE_LEN; // [MIN_QUEUE_LEN..MAX_QUEUE_LEN]
 
