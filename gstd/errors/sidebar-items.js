@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["ContractError",""],["ExtError","An error occurred in API."],["MemoryError","Memory error."],["MessageError","Error using messages."]],"struct":[["SyscallError",""]],"type":[["Result",""]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["create_program",""],["create_program_with_gas",""]],"struct":[["ProgramGenerator","`ProgramGenerator` allows you to create programs without need to set the salt manually."]]});
